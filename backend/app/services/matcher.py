@@ -12,6 +12,7 @@ from app.schemas import (
     MatchResponse,
     RecommendedJobItem,
 )
+from app.services.jobkorea_scraper import link_cross_platform_duplicates
 
 
 def _is_openai_key(key: str) -> bool:
@@ -204,8 +205,9 @@ class HRMatchingEngine:
 
     def ingest_scraped_jobs(self, scraped_jobs: List[Dict[str, Any]]) -> int:
         """
-        잡코리아 등에서 스크랩한 채용 공고를 인메모리 레지스트리(SAMPLE_JDS)와
-        ChromaDB 벡터 데이터베이스에 실시간으로 임베딩하여 저장합니다.
+        잡코리아 및 사람인에서 스크랩한 채용 공고를 인메모리 레지스트리(SAMPLE_JDS)와
+        ChromaDB 벡터 데이터베이스에 실시간으로 임베딩하여 저장하고,
+        두 플랫폼에 동시 게재된 동일 공고 쌍을 자동으로 연결합니다.
         """
         if not scraped_jobs:
             return 0
@@ -214,6 +216,8 @@ class HRMatchingEngine:
         for job in scraped_jobs:
             SAMPLE_JDS[job["job_id"]] = job
             new_or_updated.append(job)
+
+        link_cross_platform_duplicates(SAMPLE_JDS)
 
         try:
             vectorstore = self._get_vectorstore()
@@ -244,105 +248,149 @@ class HRMatchingEngine:
             f"학력 사항: {edu_desc}"
         )
 
-    def recommend_jobs(self, resume: ResumeData, top_k: int = 5) -> List[RecommendedJobItem]:
+    def _build_recommended_item(
+        self, resume: ResumeData, jid: str, sim_score: float
+    ) -> RecommendedJobItem:
+        jd = SAMPLE_JDS[jid]
+        jd_text_lower = f"{jd['title']} {jd['description']}".lower()
+        matched_skills = [
+            s for s in resume.core_skills if s.lower() in jd_text_lower
+        ]
+        skill_note = (
+            f"지원자의 보유 기술({', '.join(matched_skills[:4])})이 공고 핵심 키워드와 직접 부합하며, "
+            if matched_skills
+            else f"지원자의 {', '.join(resume.core_skills[:3])} 기반 프로젝트 경험이 직무 도메인과 시맨틱 유사도가 높으며, "
+        )
+        exp_note = (
+            f"요구 경력({jd['min_experience']}년 이상) 조건에 지원 가능하여 추천합니다."
+            if resume.total_experience_years >= jd["min_experience"]
+            else f"요구 경력은 {jd['min_experience']}년이나 보유 기술 적합도가 높아 도전 추천합니다."
+        )
+        is_dual = bool(jd.get("is_dual_posted") and jd.get("paired_job_id"))
+        dual_prefix = (
+            "[잡코리아·사람인 동일 공고 동시 게재 — 두 플랫폼 공고 모두 추천] "
+            if is_dual
+            else ""
+        )
+
+        return RecommendedJobItem(
+            job_id=jid,
+            title=jd["title"],
+            department=jd["department"],
+            min_experience=jd["min_experience"],
+            description=jd["description"],
+            url=jd.get("url"),
+            source=jd.get("source", "Internal"),
+            start_date=jd.get("start_date", "상시"),
+            end_date=jd.get("end_date", "상시채용"),
+            d_day_label=jd.get("d_day_label", "상시채용"),
+            urgency_level=jd.get("urgency_level", "normal"),
+            remaining_ratio=jd.get("remaining_ratio", 70.0),
+            location=jd.get("location", "서울/수도권"),
+            experience_label=jd.get("experience_label", f"경력 {jd['min_experience']}년+"),
+            job_keywords=jd.get("job_keywords", []),
+            is_dual_posted=is_dual,
+            paired_job_id=jd.get("paired_job_id"),
+            similarity_score=sim_score,
+            match_reason=dual_prefix + skill_note + exp_note,
+        )
+
+    def recommend_jobs(self, resume: ResumeData, top_k: int = 6) -> List[RecommendedJobItem]:
         """
-        ChromaDB에 저장된 전체 채용 공고(사내 공고 + 잡코리아 스크랩 공고) 중에서
-        지원자의 이력서 벡터와 코사인 유사도가 가장 높은 Top-K 맞춤형 공고를 추천합니다.
+        ChromaDB에 저장된 전체 채용 공고(사내 공고 + 잡코리아 + 사람인 스크랩 공고) 중에서
+        지원자의 이력서 벡터와 코사인 유사도가 가장 높은 맞춤형 공고를 추천합니다.
+        만약 동일한 공고가 잡코리아와 사람인 양쪽에 올라와 있는 경우, 두 공고를 함께 묶어 둘 다 추천합니다.
         """
+        link_cross_platform_duplicates(SAMPLE_JDS)
         candidate_text = self._resume_to_semantic_text(resume)
-        recommendations: List[RecommendedJobItem] = []
+        score_map: Dict[str, float] = {}
+        ordered_jids: List[str] = []
 
         try:
             vectorstore = self._get_vectorstore()
-            total_available = max(top_k, len(SAMPLE_JDS))
+            total_available = max(top_k * 2, len(SAMPLE_JDS))
             results = vectorstore.similarity_search_with_score(
                 query=candidate_text,
-                k=min(total_available, top_k + 3),
+                k=total_available,
             )
 
-            seen_job_ids = set()
             for doc, cosine_distance in results:
                 jid = doc.metadata.get("job_id")
-                if not jid or jid in seen_job_ids or jid not in SAMPLE_JDS:
+                if not jid or jid in score_map or jid not in SAMPLE_JDS:
                     continue
-                seen_job_ids.add(jid)
-
-                jd = SAMPLE_JDS[jid]
                 cosine_similarity = max(0.0, 1.0 - float(cosine_distance))
                 sim_score = round(
                     min(100.0, max(0.0, (cosine_similarity - 0.30) / (0.82 - 0.30) * 100.0)),
                     1,
                 )
-
-                # 매칭 사유 생성
-                jd_text_lower = f"{jd['title']} {jd['description']}".lower()
-                matched_skills = [
-                    s for s in resume.core_skills if s.lower() in jd_text_lower
-                ]
-                skill_note = (
-                    f"지원자의 보유 기술({', '.join(matched_skills[:4])})이 공고 핵심 키워드와 직접 부합하며, "
-                    if matched_skills
-                    else f"지원자의 {', '.join(resume.core_skills[:3])} 기반 프로젝트 경험이 직무 도메인과 시맨틱 유사도가 높으며, "
-                )
-                exp_note = (
-                    f"요구 경력({jd['min_experience']}년 이상) 조건에 지원 가능하여 추천합니다."
-                    if resume.total_experience_years >= jd["min_experience"]
-                    else f"요구 경력은 {jd['min_experience']}년이나 보유 기술 적합도가 높아 도전 추천합니다."
-                )
-
-                recommendations.append(
-                    RecommendedJobItem(
-                        job_id=jid,
-                        title=jd["title"],
-                        department=jd["department"],
-                        min_experience=jd["min_experience"],
-                        description=jd["description"],
-                        url=jd.get("url"),
-                        source=jd.get("source", "Internal"),
-                        start_date=jd.get("start_date", "상시"),
-                        end_date=jd.get("end_date", "상시채용"),
-                        d_day_label=jd.get("d_day_label", "상시채용"),
-                        urgency_level=jd.get("urgency_level", "normal"),
-                        remaining_ratio=jd.get("remaining_ratio", 70.0),
-                        location=jd.get("location", "서울/수도권"),
-                        experience_label=jd.get("experience_label", f"경력 {jd['min_experience']}년+"),
-                        job_keywords=jd.get("job_keywords", []),
-                        similarity_score=sim_score,
-                        match_reason=skill_note + exp_note,
-                    )
-                )
-                if len(recommendations) >= top_k:
-                    break
+                score_map[jid] = sim_score
+                ordered_jids.append(jid)
         except Exception:
             pass
 
-        # 벡터 검색 결과가 부족할 경우 인메모리 공고로 보완
-        if not recommendations:
-            for jid, jd in list(SAMPLE_JDS.items())[:top_k]:
-                recommendations.append(
-                    RecommendedJobItem(
-                        job_id=jid,
-                        title=jd["title"],
-                        department=jd["department"],
-                        min_experience=jd["min_experience"],
-                        description=jd["description"],
-                        url=jd.get("url"),
-                        source=jd.get("source", "Internal"),
-                        start_date=jd.get("start_date", "상시"),
-                        end_date=jd.get("end_date", "상시채용"),
-                        d_day_label=jd.get("d_day_label", "상시채용"),
-                        urgency_level=jd.get("urgency_level", "normal"),
-                        remaining_ratio=jd.get("remaining_ratio", 70.0),
-                        location=jd.get("location", "서울/수도권"),
-                        experience_label=jd.get("experience_label", f"경력 {jd['min_experience']}년+"),
-                        job_keywords=jd.get("job_keywords", []),
-                        similarity_score=78.5,
-                        match_reason=f"보유 기술({', '.join(resume.core_skills[:3])}) 연관 직무로 추천합니다.",
-                    )
-                )
+        # 벡터 검색에서 누락되었거나 폴백인 경우 키워드 기반 유사도 보완
+        for jid, jd in SAMPLE_JDS.items():
+            if jid not in score_map:
+                jd_desc = f"{jd['title']} {jd['description']}".lower()
+                matched_cnt = sum(1 for s in resume.core_skills if s.lower() in jd_desc)
+                ratio = matched_cnt / max(1, len(resume.core_skills))
+                score_map[jid] = round(min(95.0, 62.0 + ratio * 33.0), 1)
+                ordered_jids.append(jid)
 
-        recommendations.sort(key=lambda x: x.similarity_score, reverse=True)
-        return recommendations[:top_k]
+        ordered_jids.sort(key=lambda x: score_map.get(x, 0.0), reverse=True)
+
+        recommendations: List[RecommendedJobItem] = []
+        included_ids = set()
+
+        for jid in ordered_jids:
+            if jid in included_ids:
+                continue
+            if len(recommendations) >= top_k:
+                break
+
+            jd = SAMPLE_JDS[jid]
+            paired_id = jd.get("paired_job_id")
+
+            # 동일 공고가 잡코리아와 사람인에 둘 다 올라와 있으면 두 개를 나란히 추천
+            if jd.get("is_dual_posted") and paired_id and paired_id in SAMPLE_JDS and paired_id not in included_ids:
+                pair_score = max(score_map.get(jid, 78.0), score_map.get(paired_id, 78.0))
+                first_item = self._build_recommended_item(resume, jid, pair_score)
+                second_item = self._build_recommended_item(
+                    resume, paired_id, round(max(0.0, pair_score - 0.2), 1)
+                )
+                recommendations.append(first_item)
+                recommendations.append(second_item)
+                included_ids.add(jid)
+                included_ids.add(paired_id)
+            else:
+                recommendations.append(
+                    self._build_recommended_item(resume, jid, score_map.get(jid, 78.0))
+                )
+                included_ids.add(jid)
+
+        # 만약 SAMPLE_JDS 내에 동시 게재(잡코리아+사람인) 쌍이 존재하는데 아직 추천 목록에 없다면
+        # 가장 점수가 높은 동시 게재 쌍 2개를 추천 리스트에 포함하여 두 플랫폼 공고를 모두 보여줌
+        has_dual_in_recs = any(r.is_dual_posted for r in recommendations)
+        if not has_dual_in_recs:
+            dual_candidates = [
+                jid for jid in ordered_jids
+                if SAMPLE_JDS[jid].get("is_dual_posted")
+                and SAMPLE_JDS[jid].get("paired_job_id") in SAMPLE_JDS
+            ]
+            if dual_candidates:
+                best_jid = dual_candidates[0]
+                paired_id = SAMPLE_JDS[best_jid]["paired_job_id"]
+                pair_score = max(score_map.get(best_jid, 80.0), score_map.get(paired_id, 80.0))
+                first_item = self._build_recommended_item(resume, best_jid, pair_score)
+                second_item = self._build_recommended_item(
+                    resume, paired_id, round(max(0.0, pair_score - 0.2), 1)
+                )
+                if len(recommendations) >= 2:
+                    recommendations = recommendations[:-2]
+                recommendations.append(first_item)
+                recommendations.append(second_item)
+
+        return recommendations
 
     def calculate_semantic_similarity(self, resume: ResumeData, target_job_id: str) -> float:
         """

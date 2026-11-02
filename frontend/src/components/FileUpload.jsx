@@ -58,16 +58,16 @@ export default function FileUpload({
 
   return (
     <div className="space-y-6">
-      {/* 0. 잡코리아 실시간 스크래핑 & ChromaDB 적재 카드 */}
+      {/* 0. 잡코리아 & 사람인 실시간 스크래핑 & ChromaDB 적재 카드 */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-blue-200">
         <div className="flex items-center gap-2 mb-2">
           <Globe className="w-4 h-4 text-blue-600" />
           <label className="block text-sm font-bold text-slate-800">
-            잡코리아(JobKorea) 실시간 공고 스크랩 & DB 적재
+            잡코리아 & 사람인 실시간 공고 스크랩 · DB 적재
           </label>
         </div>
         <p className="text-xs text-slate-500 mb-3">
-          직무/기술 키워드로 잡코리아 실시간 공고와 마감일(D-Day)을 크롤링해 ChromaDB에 적재합니다.
+          직무 키워드로 잡코리아(JobKorea)와 사람인(Saramin) 공고를 동시에 수집합니다. 동일 공고가 두 사이트에 올라와 있으면 두 개 모두 추천합니다.
         </p>
         <form onSubmit={handleScrapeSubmit} className="flex gap-2">
           <input
@@ -143,11 +143,17 @@ export default function FileUpload({
                   rel="noopener noreferrer"
                   className="text-[11px] font-semibold text-blue-600 hover:underline flex items-center gap-1"
                 >
-                  잡코리아 원문 보기
+                  {selectedJobObj.source === "Saramin" ? "사람인 원문 보기" : "잡코리아 원문 보기"}
                   <ExternalLink className="w-3 h-3" />
                 </a>
               )}
             </div>
+
+            {selectedJobObj.is_dual_posted && (
+              <div className="bg-purple-50 border border-purple-200 text-purple-800 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold">
+                ⚡ 잡코리아 · 사람인 동일 공고 중복 게재 (두 공고 모두 추천 대상)
+              </div>
+            )}
 
             <div className="space-y-1 text-[11px] text-slate-700">
               <p className="flex items-center gap-1.5">
@@ -254,10 +260,10 @@ export default function FileUpload({
           {loadingStep === "recommending" && (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              3/3 잡코리아 실시간 공고 스크랩 및 맞춤 추천 중...
+              3/3 잡코리아·사람인 실시간 공고 스크랩 및 맞춤 추천 중...
             </>
           )}
-          {loadingStep === "" && "AI 이력서 분석 & 잡코리아 맞춤 공고 추천"}
+          {loadingStep === "" && "AI 이력서 분석 & 잡코리아·사람인 맞춤 공고 추천"}
         </button>
       </div>
     </div>

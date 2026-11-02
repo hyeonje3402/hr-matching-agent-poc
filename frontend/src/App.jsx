@@ -40,33 +40,39 @@ export default function App() {
       );
   }, []);
 
-  // 좌측에서 잡코리아 키워드 수동 스크랩 & ChromaDB 적재
+  // 좌측에서 잡코리아 & 사람인 키워드 수동 스크랩 & ChromaDB 적재
   const handleScrapeKeyword = async (keyword) => {
     setIsScraping(true);
     setScrapeStatusMsg("");
     setErrorMsg("");
     try {
-      const res = await scrapeJobKorea(keyword, 6);
+      const res = await scrapeJobKorea(keyword, 5);
       setJobs(res.all_jobs);
+      const dualNote =
+        res.dual_posted_pairs > 0
+          ? ` (동일 공고 중복 게재 ${res.dual_posted_pairs}쌍 발견 · 동시 추천 적용)`
+          : "";
       setScrapeStatusMsg(
-        `'${keyword}' 키워드로 잡코리아 공고 ${res.scraped_count}건을 스크랩하여 ChromaDB에 적재했습니다!`
+        `'${keyword}' 키워드로 잡코리아 ${res.jobkorea_count ?? 0}건, 사람인 ${
+          res.saramin_count ?? 0
+        }건(총 ${res.scraped_count}건)을 스크랩하여 적재했습니다!${dualNote}`
       );
       if (res.scraped_jobs && res.scraped_jobs.length > 0) {
         setSelectedJobId(res.scraped_jobs[0].job_id);
       }
       // 이미 분석된 이력서가 있다면 추천 목록도 즉시 갱신
       if (resumeData) {
-        const recs = await recommendJobsForResume(resumeData, 5, false);
+        const recs = await recommendJobsForResume(resumeData, 6, false);
         setRecommendations(recs);
       }
     } catch (err) {
-      setErrorMsg("잡코리아 공고 스크래핑 중 오류가 발생했습니다.");
+      setErrorMsg("잡코리아·사람인 공고 스크래핑 중 오류가 발생했습니다.");
     } finally {
       setIsScraping(false);
     }
   };
 
-  // 이력서 업로드 -> 정형 추출 -> JD 매칭 -> 잡코리아 스크랩 & 맞춤 공고 추천 파이프라인 실행
+  // 이력서 업로드 -> 정형 추출 -> JD 매칭 -> 잡코리아·사람인 스크랩 & 맞춤 공고 추천 파이프라인 실행
   const handleAnalyze = async () => {
     if (!file) {
       setErrorMsg("먼저 지원자의 PDF 이력서를 업로드해주세요.");
@@ -86,12 +92,12 @@ export default function App() {
       const matchedData = await matchResumeWithJob(selectedJobId, extractedData);
       setMatchResult(matchedData);
 
-      // Step 3: 지원자 스킬 기반 잡코리아 실시간 스크랩 + ChromaDB 맞춤 공고 Top-5 추천
+      // Step 3: 지원자 스킬 기반 잡코리아·사람인 실시간 스크랩 + ChromaDB 맞춤 공고 추천
       setLoadingStep("recommending");
-      const recs = await recommendJobsForResume(extractedData, 5, true);
+      const recs = await recommendJobsForResume(extractedData, 6, true);
       setRecommendations(recs);
 
-      // 새로 스크랩된 잡코리아 공고들을 좌측 드롭다운 목록에도 동기화
+      // 새로 스크랩된 잡코리아·사람인 공고들을 좌측 드롭다운 목록에도 동기화
       const updatedJobs = await fetchJobs();
       setJobs(updatedJobs);
     } catch (err) {
@@ -129,7 +135,7 @@ export default function App() {
           <div>
             <h1 className="text-lg font-bold text-slate-900">AI Talent Matcher Pro</h1>
             <p className="text-xs text-slate-500">
-              LLM Structured Output · ChromaDB Semantic Search · 잡코리아 실시간 공고 추천
+              LLM Structured Output · ChromaDB Semantic Search · 잡코리아 & 사람인 실시간 공고 추천
             </p>
           </div>
         </div>

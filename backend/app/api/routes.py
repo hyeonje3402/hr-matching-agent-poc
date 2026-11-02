@@ -11,7 +11,10 @@ from app.schemas import (
 from app.services.pdf_parser import extract_text_from_pdf
 from app.services.extractor import parse_resume_to_json
 from app.services.matcher import HRMatchingEngine, SAMPLE_JDS
-from app.services.jobkorea_scraper import scrape_jobkorea_postings
+from app.services.jobkorea_scraper import (
+    scrape_multi_platform_postings,
+    link_cross_platform_duplicates,
+)
 
 router = APIRouter(prefix="/api", tags=["Resume & Matching"])
 
@@ -21,7 +24,8 @@ matching_engine = HRMatchingEngine()
 
 @router.get("/jobs")
 async def get_job_list():
-    """현재 등록된 전체 채용 공고(사내 공고 + 잡코리아 스크래핑 공고) 목록을 반환합니다."""
+    """현재 등록된 전체 채용 공고(사내 공고 + 잡코리아 + 사람인 스크래핑 공고) 목록을 반환합니다."""
+    link_cross_platform_duplicates(SAMPLE_JDS)
     return [
         {
             "job_id": k,
@@ -39,6 +43,8 @@ async def get_job_list():
             "location": v.get("location", "서울/수도권"),
             "experience_label": v.get("experience_label", f"경력 {v['min_experience']}년+"),
             "job_keywords": v.get("job_keywords", []),
+            "is_dual_posted": bool(v.get("is_dual_posted", False)),
+            "paired_job_id": v.get("paired_job_id"),
         }
         for k, v in SAMPLE_JDS.items()
     ]
@@ -47,16 +53,24 @@ async def get_job_list():
 @router.post("/jobs/scrape-jobkorea")
 async def scrape_and_ingest_jobkorea(request: ScrapeJobKoreaRequest):
     """
-    잡코리아(JobKorea)에서 키워드로 실시간 채용 공고를 스크래핑하여
+    잡코리아(JobKorea)와 사람인(Saramin)에서 키워드로 실시간 채용 공고를 동시에 스크래핑하여
     ChromaDB 벡터 데이터베이스에 임베딩 적재하고 업데이트된 공고 목록을 반환합니다.
     """
-    scraped = await scrape_jobkorea_postings(
-        keyword=request.keyword, max_items=request.max_items
+    scraped = await scrape_multi_platform_postings(
+        keyword=request.keyword,
+        max_items_per_source=request.max_items,
+        include_saramin=request.include_saramin,
     )
     ingested_count = matching_engine.ingest_scraped_jobs(scraped)
+    jk_cnt = sum(1 for j in scraped if j.get("source") == "JobKorea")
+    sr_cnt = sum(1 for j in scraped if j.get("source") == "Saramin")
+    dual_cnt = sum(1 for j in scraped if j.get("is_dual_posted")) // 2
     return {
         "keyword": request.keyword,
         "scraped_count": ingested_count,
+        "jobkorea_count": jk_cnt,
+        "saramin_count": sr_cnt,
+        "dual_posted_pairs": dual_cnt,
         "scraped_jobs": scraped,
         "all_jobs": await get_job_list(),
     }
@@ -106,12 +120,12 @@ async def match_resume_with_jd(request: MatchRequest):
 @router.post("/resume/recommend", response_model=List[RecommendedJobItem])
 async def recommend_jobs_for_candidate(request: RecommendRequest):
     """
-    [3단계 API] 지원자의 이력서 스킬을 기반으로 잡코리아 실시간 공고를 스크랩해 ChromaDB에 적재한 뒤,
-    벡터 유사도가 가장 높은 맞춤형 추천 공고 Top-K 리스트를 반환합니다.
+    [3단계 API] 지원자의 이력서 스킬을 기반으로 잡코리아 및 사람인 실시간 공고를 스크랩해 ChromaDB에 적재한 뒤,
+    벡터 유사도가 가장 높은 맞춤형 추천 공고 리스트(동일 공고 중복 게재 시 두 플랫폼 공고 모두 포함)를 반환합니다.
     """
     try:
         if request.auto_scrape_jobkorea:
-            # 지원자의 상위 핵심 기술 키워드로 잡코리아 실시간 공고 자동 수집
+            # 지원자의 상위 핵심 기술 키워드로 잡코리아 및 사람인 실시간 공고 자동 수집
             if request.custom_keyword and request.custom_keyword.strip():
                 search_kw = request.custom_keyword.strip()
             elif request.resume_data.core_skills:
@@ -119,7 +133,9 @@ async def recommend_jobs_for_candidate(request: RecommendRequest):
             else:
                 search_kw = "개발자"
 
-            scraped = await scrape_jobkorea_postings(keyword=search_kw, max_items=6)
+            scraped = await scrape_multi_platform_postings(
+                keyword=search_kw, max_items_per_source=5, include_saramin=True
+            )
             if scraped:
                 matching_engine.ingest_scraped_jobs(scraped)
 

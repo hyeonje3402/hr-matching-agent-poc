@@ -78,11 +78,12 @@ class MatchResponse(BaseModel):
 
 
 # ==========================================
-# 3. 잡코리아 스크래핑 및 맞춤형 공고 추천 스키마
+# 3. 잡코리아·사람인 스크래핑 및 맞춤형 공고 추천 스키마
 # ==========================================
 class ScrapeJobKoreaRequest(BaseModel):
-    keyword: str = Field(default="Python 백엔드", description="잡코리아에서 검색할 직무/기술 키워드")
-    max_items: int = Field(default=6, ge=1, le=15, description="스크래핑하여 ChromaDB에 적재할 최대 공고 수")
+    keyword: str = Field(default="Python 백엔드", description="잡코리아 및 사람인에서 검색할 직무/기술 키워드")
+    max_items: int = Field(default=6, ge=1, le=15, description="플랫폼별 스크래핑하여 ChromaDB에 적재할 최대 공고 수")
+    include_saramin: bool = Field(default=True, description="사람인(Saramin) 공고도 함께 스크래핑할지 여부")
 
 
 class RecommendedJobItem(BaseModel):
@@ -102,19 +103,21 @@ class RecommendedJobItem(BaseModel):
     location: Optional[str] = Field(default="서울/수도권", description="근무지역")
     experience_label: Optional[str] = Field(default="신입/경력", description="경력 요건 표기")
     job_keywords: List[str] = Field(default_factory=list, description="직무/기술 핵심 태그")
+    is_dual_posted: bool = Field(default=False, description="잡코리아와 사람인에 동일 공고가 동시 게재되었는지 여부")
+    paired_job_id: Optional[str] = Field(default=None, description="동일 공고로 매칭된 타 플랫폼 공고 ID")
     similarity_score: float = Field(description="ChromaDB 시맨틱 매칭 적합도 점수 (0~100)")
     match_reason: str = Field(description="이 지원자에게 해당 공고를 추천하는 핵심 사유")
 
 
 class RecommendRequest(BaseModel):
     resume_data: ResumeData
-    top_k: int = Field(default=5, ge=1, le=10)
+    top_k: int = Field(default=6, ge=1, le=12)
     auto_scrape_jobkorea: bool = Field(
         default=True,
-        description="지원자 핵심 기술 스택 기반으로 잡코리아 실시간 공고를 자동 스크래핑하여 DB에 추가할지 여부",
+        description="지원자 핵심 기술 스택 기반으로 잡코리아 및 사람인 실시간 공고를 자동 스크래핑하여 DB에 추가할지 여부",
     )
     custom_keyword: Optional[str] = Field(
         default=None,
-        description="특정 검색어로 잡코리아 공고를 스크랩하고 싶을 때 지정",
+        description="특정 검색어로 잡코리아·사람인 공고를 스크랩하고 싶을 때 지정",
     )
 

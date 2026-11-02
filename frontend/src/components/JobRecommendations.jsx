@@ -57,10 +57,10 @@ export default function JobRecommendations({
         <div>
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <Compass className="w-5 h-5 text-indigo-600" />
-            AI 맞춤 채용 공고 추천 (잡코리아 실시간 마감일 · D-Day 연동)
+            AI 맞춤 채용 공고 추천 (잡코리아 & 사람인 실시간 연동)
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            지원자 스펙과 ChromaDB 유사도가 높은 공고의 남은 접수 시간, 근무지, 자격요건을 한눈에 비교하세요.
+            지원자 스펙과 유사도가 높은 공고를 추천하며, 잡코리아와 사람인에 같은 공고가 올라와 있으면 두 개를 함께 추천합니다.
           </p>
         </div>
         <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">
@@ -72,7 +72,20 @@ export default function JobRecommendations({
         {recommendations.map((item, idx) => {
           const isSelected = item.job_id === selectedJobId;
           const isJobKorea = item.source === "JobKorea";
+          const isSaramin = item.source === "Saramin";
           const uStyle = getUrgencyStyle(item.urgency_level);
+
+          const sourceBadgeClass = isJobKorea
+            ? "bg-blue-100 text-blue-800 border border-blue-200"
+            : isSaramin
+            ? "bg-amber-100 text-amber-800 border border-amber-200"
+            : "bg-slate-200 text-slate-700";
+
+          const sourceLabel = isJobKorea
+            ? "잡코리아 실시간"
+            : isSaramin
+            ? "사람인 실시간"
+            : "사내 공고";
 
           return (
             <div
@@ -80,10 +93,12 @@ export default function JobRecommendations({
               className={`p-4 rounded-xl border transition-all ${
                 isSelected
                   ? "border-indigo-600 bg-indigo-50/30 ring-2 ring-indigo-500/20"
+                  : item.is_dual_posted
+                  ? "border-purple-300 bg-purple-50/15 hover:border-purple-400"
                   : "border-slate-200 hover:border-indigo-300 bg-white"
               }`}
             >
-              {/* 상단: 순위 + 출처 + 기업명 + D-Day 남은시간 배지 + 유사도 점수 */}
+              {/* 상단: 순위 + 출처 + 중복게재 배지 + 기업명 + D-Day 남은시간 배지 + 유사도 점수 */}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1.5 flex-1 min-w-[240px]">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -91,14 +106,16 @@ export default function JobRecommendations({
                       #{idx + 1} 추천
                     </span>
                     <span
-                      className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
-                        isJobKorea
-                          ? "bg-blue-100 text-blue-800 border border-blue-200"
-                          : "bg-slate-200 text-slate-700"
-                      }`}
+                      className={`text-[11px] font-semibold px-2 py-0.5 rounded ${sourceBadgeClass}`}
                     >
-                      {isJobKorea ? "잡코리아 실시간" : "사내 공고"}
+                      {sourceLabel}
                     </span>
+
+                    {item.is_dual_posted && (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-300">
+                        ⚡ 잡코리아·사람인 중복 공고 (2개 동시 추천)
+                      </span>
+                    )}
 
                     {/* 직관적 D-Day 남은 시간 배지 */}
                     <span
@@ -216,9 +233,13 @@ export default function JobRecommendations({
                     href={item.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 transition shadow-sm"
+                    className={`text-xs font-semibold px-3.5 py-1.5 rounded-lg text-white flex items-center gap-1.5 transition shadow-sm ${
+                      isSaramin
+                        ? "bg-amber-600 hover:bg-amber-700"
+                        : "bg-blue-600 hover:bg-blue-700"
+                    }`}
                   >
-                    잡코리아 공고 바로가기
+                    {isSaramin ? "사람인 공고 바로가기" : "잡코리아 공고 바로가기"}
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 )}
