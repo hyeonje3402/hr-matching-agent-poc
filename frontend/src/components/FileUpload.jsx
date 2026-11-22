@@ -124,13 +124,12 @@ export default function FileUpload({
             {/* 선택된 공고의 D-Day 및 마감일 하이라이트 */}
             <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200/80">
               <span
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1 ${
-                  selectedJobObj.urgency_level === "urgent"
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1 ${selectedJobObj.urgency_level === "urgent"
                     ? "bg-rose-600 text-white"
                     : selectedJobObj.urgency_level === "relaxed"
-                    ? "bg-emerald-600 text-white"
-                    : "bg-indigo-600 text-white"
-                }`}
+                      ? "bg-emerald-600 text-white"
+                      : "bg-indigo-600 text-white"
+                  }`}
               >
                 <Clock className="w-3 h-3" />
                 {selectedJobObj.d_day_label || "상시채용"}
@@ -195,11 +194,10 @@ export default function FileUpload({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-            isDragging
+          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${isDragging
               ? "border-indigo-500 bg-indigo-50"
               : "border-slate-300 hover:border-indigo-400 bg-slate-50/50"
-          }`}
+            }`}
         >
           <input
             type="file"
