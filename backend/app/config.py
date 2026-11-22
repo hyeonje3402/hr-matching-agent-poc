@@ -18,12 +18,12 @@ class Settings:
     @property
     def OPENAI_MODEL(self) -> str:
         load_dotenv(dotenv_path=ENV_PATH, override=True)
-        return os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+        return os.getenv("OPENAI_MODEL", "gpt-6.1-terra").strip()
 
     @property
-    def EMBEDDING_MODEL(self) -> str:
+    def OPENAI_EMBEDDING_MODEL(self) -> str:
         load_dotenv(dotenv_path=ENV_PATH, override=True)
-        return os.getenv("EMBEDDING_MODEL", "text-embedding-3-small").strip()
+        return os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small").strip()
 
     @property
     def CHROMA_PERSIST_DIR(self) -> str:

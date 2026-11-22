@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from "react";
-import { Briefcase, Sparkles } from "lucide-react";
+import { Briefcase, ChartNoAxesCombined, FileSearch, History, MessageSquareText, Sparkles } from "lucide-react";
 import {
   fetchJobs,
   scrapeJobKorea,
   uploadResumePdf,
   matchResumeWithJob,
   recommendJobsForResume,
+  createInterview,
+  repracticeInterviewQuestion,
 } from "./api/resumeApi";
 import FileUpload from "./components/FileUpload";
 import ScoreGauge from "./components/ScoreGauge";
 import ReportCard from "./components/ReportCard";
 import SpecCard from "./components/SpecCard";
 import JobRecommendations from "./components/JobRecommendations";
+import InterviewStudio from "./components/InterviewStudio";
+import InterviewHistory from "./components/InterviewHistory";
+import GrowthDashboard from "./components/GrowthDashboard";
 
 export default function App() {
   const [jobs, setJobs] = useState([]);
@@ -27,6 +32,38 @@ export default function App() {
 
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeStatusMsg, setScrapeStatusMsg] = useState("");
+  const [activeView, setActiveView] = useState("dashboard");
+  const [interviewSession, setInterviewSession] = useState(null);
+  const [interviewError, setInterviewError] = useState("");
+
+  const openHistorySession = (session) => {
+    setInterviewSession(session);
+    setActiveView("interview");
+  };
+
+  const startPractice = async (session, question = null) => {
+    try {
+      const next = question
+        ? await repracticeInterviewQuestion(session.session_id, question.message_id)
+        : await createInterview({
+            resume_data: session.resume_data,
+            job_id: null,
+            company_name: session.company_name,
+            position: session.position,
+            job_description: session.job_description,
+            interview_type: session.interview_type,
+            interviewers: session.interviewers,
+            difficulty: session.difficulty,
+            max_questions: session.max_questions,
+            mode: session.mode,
+          });
+      setInterviewSession(next);
+      setActiveView("interview");
+      setInterviewError("");
+    } catch (error) {
+      setInterviewError(error.response?.data?.detail || "재연습 면접을 시작하지 못했습니다.");
+    }
+  };
 
   // 초기 채용 공고 목록 로드
   useEffect(() => {
@@ -127,22 +164,27 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* 상단 헤더 */}
-      <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3 shadow-sm sm:px-8">
         <div className="flex items-center gap-3">
           <div className="bg-indigo-600 text-white p-2 rounded-lg">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
             <h1 className="text-lg font-bold text-slate-900">AI Talent Matcher Pro</h1>
-            <p className="text-xs text-slate-500">
-              LLM Structured Output · ChromaDB Semantic Search · 잡코리아 & 사람인 실시간 공고 추천
-            </p>
+            <p className="text-xs text-slate-500">채용 매칭 · AI 모의 면접 연습</p>
           </div>
         </div>
+        <nav className="flex items-center gap-1 rounded-xl bg-slate-100 p-1" aria-label="주요 메뉴">
+          {[["dashboard", FileSearch, "채용 매칭"], ["interview", MessageSquareText, "AI 모의 면접"], ["growth", ChartNoAxesCombined, "성장·훈련"], ["history", History, "면접 기록"]].map(([id, Icon, label]) => (
+            <button key={id} onClick={() => { setActiveView(id); setInterviewError(""); }} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${activeView === id ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
+              <Icon size={15}/><span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </nav>
       </header>
 
-      {/* 메인 대시보드 그리드 (좌측 4 : 우측 8) */}
-      <main className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+        {activeView === "dashboard" && <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* 좌측: 잡코리아 스크랩 + 채용 공고 선택 + PDF 업로드 */}
         <section className="lg:col-span-4">
           <FileUpload
@@ -180,12 +222,32 @@ export default function App() {
                 selectedJobId={selectedJobId}
                 onSelectRecommendedJob={handleJobChange}
               />
+              <button onClick={() => { setInterviewSession(null); setActiveView("interview"); }} disabled={!selectedJobId} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-700 disabled:bg-slate-300">선택한 공고로 면접 준비</button>
               <ScoreGauge matchResult={matchResult} />
               <ReportCard matchResult={matchResult} />
               <SpecCard resumeData={resumeData} />
             </>
           )}
         </section>
+        </div>}
+        {activeView === "interview" && <>
+          {interviewError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{interviewError}</div>}
+          <InterviewStudio
+            key={interviewSession?.session_id || "new-interview"}
+            jobs={jobs}
+            resumeData={resumeData}
+            onResumeReady={setResumeData}
+            initialSession={interviewSession}
+            initialJobId={!interviewSession ? selectedJobId : undefined}
+            onSessionChange={setInterviewSession}
+            onBack={() => setActiveView("dashboard")}
+          />
+        </>}
+        {activeView === "history" && <>
+          {interviewError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{interviewError}</div>}
+          <InterviewHistory onBack={() => setActiveView("dashboard")} onOpen={openHistorySession} onPractice={startPractice}/>
+        </>}
+        {activeView === "growth" && <GrowthDashboard onPractice={startPractice} />}
       </main>
     </div>
   );

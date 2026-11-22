@@ -1,10 +1,11 @@
 # Environment variables
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 *.so
@@ -15,6 +16,18 @@ ENV/
 chroma_db/
 *.db
 *.sqlite3
+*.sqlite3-*
+*.sqlite
+*.sqlite-*
+*.db-*
+
+# Local documents, test data and logs
+/local-data/
+/backend/local-data/
+/backend/uploads/
+*.pdf
+*.docx
+*.log
 
 # Node / Frontend
 node_modules/
