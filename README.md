@@ -113,3 +113,8 @@ npm run dev -- --host 127.0.0.1
 - [개발 및 API 경로](docs/development/README.md)
 - [로컬 운영과 데이터 처리](docs/operations/README.md)
 - [향후 개선 방향](docs/roadmap/README.md)
+
+
+## 2026-11-26 검증 결과
+
+이번 검증에서 백엔드 Pytest **22개 통과, 실패 0개**, Python 컴파일 검사와 Vite 프로덕션 빌드가 통과했습니다. 테스트 환경에서 \`PyPDF2\` 폐기 예정 경고 1개가 발생했습니다. 운영 API 사용, 비용, 실제 마이크 입력과 스피커 출력은 이번 검증에 포함하지 않았습니다.
